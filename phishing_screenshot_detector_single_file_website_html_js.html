@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Phishing Screenshot Detector</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#0f172a; --card:#111827; --muted:#94a3b8; --ok:#10b981; --warn:#f59e0b; --bad:#ef4444; --border:#1f2937; }
+    * { box-sizing: border-box }
+    body { margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; background:linear-gradient(180deg,#0b1220,#0f172a); color:#e5e7eb; }
+    header { padding: 32px 20px; text-align:center; }
+    h1 { margin:0 0 8px; font-size: 28px; font-weight:700; }
+    p.sub { margin:0; color:var(--muted); }
+
+    .wrap { max-width: 1000px; margin: 24px auto 60px; padding: 0 16px; display:grid; grid-template-columns: 1.1fr .9fr; gap: 16px; }
+    @media (max-width: 960px){ .wrap { grid-template-columns: 1fr; } }
+
+    .card { background: linear-gradient(180deg,#0f172a,#0b1220); border:1px solid var(--border); border-radius: 16px; box-shadow: 0 10px 24px rgba(0,0,0,.35); }
+    .card .inner { padding: 18px; }
+    .card h2 { margin: 0 0 10px; font-size: 18px; }
+
+    .uploader { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    .btn { background:#1f2937; border:1px solid var(--border); color:#e5e7eb; padding:10px 14px; border-radius: 10px; cursor:pointer; font-weight:600; }
+    .btn:hover { filter:brightness(1.05); }
+    input[type=file] { display:none; }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+
+    .preview { background:#0b1220; border:1px dashed #334155; border-radius:12px; padding:10px; display:flex; gap:10px; align-items:flex-start; }
+    .preview img { max-width: 100%; width: 100%; border-radius:10px; display:block; }
+
+    .progress { margin-top:12px; background:#0b1220; border:1px solid #1f2937; border-radius:10px; height:12px; overflow:hidden; }
+    .bar { height:100%; width:0; background:linear-gradient(90deg,#22c55e,#3b82f6); transition: width .2s ease; }
+    .small { font-size:12px; color:var(--muted); margin-top:6px; }
+
+    .score { display:flex; align-items:center; gap:8px; font-weight:700; }
+    .pill { padding:4px 10px; border-radius:999px; font-size:12px; font-weight:700; border:1px solid #1f2937; }
+    .pill.ok { background:rgba(16,185,129,.12); color:#a7f3d0; }
+    .pill.warn { background:rgba(245,158,11,.12); color:#fde68a; }
+    .pill.bad { background:rgba(239,68,68,.12); color:#fecaca; }
+
+    .flags { display:grid; gap:10px; margin-top:12px; }
+    .flag { background:#0b1220; border:1px solid #1f2937; border-radius:12px; padding:10px; }
+    .flag strong { display:block; margin-bottom:4px; }
+
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; white-space: pre-wrap; word-wrap: break-word; }
+
+    .footer { max-width:1000px; margin:24px auto 60px; padding:0 16px; color:var(--muted); font-size:12px; }
+    .tips li { margin: 6px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🛡️ Phishing Screenshot Detector</h1>
+    <p class="sub">Upload an email/screen screenshot. We extract text <em>in your browser</em> and assess phishing risk. Nothing is sent to a server.</p>
+  </header>
+
+  <main class="wrap">
+    <section class="card">
+      <div class="inner">
+        <h2>1) Upload Screenshot</h2>
+        <div class="uploader">
+          <label for="file" class="btn">Choose Image</label>
+          <input id="file" type="file" accept="image/*" />
+          <button id="analyzeBtn" class="btn" disabled>Analyze</button>
+          <span id="fileName" class="small"></span>
+        </div>
+        <p class="hint">Accepted: PNG, JPG, JPEG. Clear, full email screenshots give the best results.</p>
+        <div id="preview" class="preview" style="display:none;"></div>
+
+        <div id="progressWrap" style="display:none;">
+          <div class="progress"><div class="bar" id="bar"></div></div>
+          <div id="status" class="small">Initializing OCR…</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="inner">
+        <h2>2) Result</h2>
+        <div class="score" id="verdictWrap" style="display:none;">
+          <span>Verdict:</span>
+          <span class="pill" id="verdictPill">Pending</span>
+          <span id="scoreText" class="small"></span>
+        </div>
+
+        <div id="flags" class="flags" style="display:none;"></div>
+
+        <h3 style="margin-top:16px;">Extracted Text</h3>
+        <pre id="text" class="mono" style="min-height:80px; background:#0b1220; border:1px solid #1f2937; border-radius:12px; padding:10px;">—</pre>
+      </div>
+    </section>
+  </main>
+
+  <div class="footer card">
+    <div class="inner">
+      <h3 style="margin:0 0 8px;">Notes & Limitations</h3>
+      <ul class="tips">
+        <li>This demo runs entirely in your browser using OCR (Tesseract.js). No images leave your device.</li>
+        <li>Heuristics can produce false positives/negatives. Always verify with your organization’s policy.</li>
+        <li>Best results with clear screenshots showing sender, subject, body, and visible links.</li>
+        <li>Never upload highly sensitive data to any site you don’t trust.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Tesseract.js (client-side OCR) -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <script>
+    const fileInput = document.getElementById('file');
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const fileName = document.getElementById('fileName');
+    const preview = document.getElementById('preview');
+    const progressWrap = document.getElementById('progressWrap');
+    const bar = document.getElementById('bar');
+    const statusEl = document.getElementById('status');
+    const textEl = document.getElementById('text');
+    const verdictWrap = document.getElementById('verdictWrap');
+    const verdictPill = document.getElementById('verdictPill');
+    const scoreText = document.getElementById('scoreText');
+    const flagsEl = document.getElementById('flags');
+
+    let imageBlob = null;
+
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files[0];
+      if (!f) return;
+      imageBlob = f;
+      fileName.textContent = f.name + ` (${Math.round(f.size/1024)} KB)`;
+      analyzeBtn.disabled = false;
+
+      const reader = new FileReader();
+      reader.onload = e => {
+        preview.style.display = 'block';
+        preview.innerHTML = `<img alt="preview" src="${e.target.result}">`;
+      };
+      reader.readAsDataURL(f);
+    });
+
+    analyzeBtn.addEventListener('click', async () => {
+      if (!imageBlob) return;
+      verdictWrap.style.display = 'none';
+      flagsEl.style.display = 'none';
+      flagsEl.innerHTML = '';
+      textEl.textContent = '—';
+
+      progressWrap.style.display = 'block';
+      bar.style.width = '0%';
+      statusEl.textContent = 'Running OCR…';
+
+      try {
+        const { data } = await Tesseract.recognize(imageBlob, 'eng', {
+          logger: m => {
+            if (m.status === 'recognizing text' && m.progress != null) {
+              bar.style.width = Math.round(m.progress * 100) + '%';
+              statusEl.textContent = `OCR: ${Math.round(m.progress * 100)}%`;
+            }
+          }
+        });
+
+        const rawText = (data && data.text ? data.text : '').trim();
+        textEl.textContent = rawText || 'No text detected. Try a clearer screenshot.';
+        progressWrap.style.display = 'none';
+
+        const analysis = analyzeText(rawText);
+        renderVerdict(analysis);
+        renderFlags(analysis.flags);
+      } catch (err) {
+        progressWrap.style.display = 'none';
+        statusEl.textContent = 'OCR failed.';
+        alert('OCR failed: ' + err.message);
+      }
+    });
+
+    function renderVerdict(analysis){
+      verdictWrap.style.display = 'flex';
+      verdictPill.classList.remove('ok','warn','bad');
+      verdictPill.textContent = analysis.verdict.toUpperCase();
+      scoreText.textContent = `(score: ${analysis.score})`;
+      if (analysis.verdict === 'safe') verdictPill.classList.add('ok');
+      else if (analysis.verdict === 'caution') verdictPill.classList.add('warn');
+      else verdictPill.classList.add('bad');
+    }
+
+    function renderFlags(flags){
+      flagsEl.style.display = 'grid';
+      flagsEl.innerHTML = '';
+      if (!flags.length){
+        const div = document.createElement('div');
+        div.className = 'flag';
+        div.innerHTML = '<strong>No red flags detected</strong><span class="small">This does not guarantee safety. Always verify sender and links.</span>';
+        flagsEl.appendChild(div);
+        return;
+      }
+      flags.forEach(f => {
+        const div = document.createElement('div');
+        div.className = 'flag';
+        div.innerHTML = `<strong>${f.title}</strong><span class="small">${f.detail}</span>`;
+        flagsEl.appendChild(div);
+      });
+    }
+
+    function analyzeText(t){
+      const text = (t || '').toLowerCase();
+      const flags = [];
+      let score = 0;
+
+      // 1) Urgency / Threat language
+      const urgentPhrases = [
+        'urgent', 'immediately', 'verify now', 'act now', 'last warning', '24 hours', 'account will be blocked',
+        'suspend', 'suspended', 'unusual activity', 'limited time', 'final notice', 'your account will be closed']
+      if (urgentPhrases.some(p => text.includes(p))){
+        score += 2; flags.push({title:'Urgent/Threatening language', detail:'Message pressures you to act quickly (classic phishing tactic).'});
+      }
+
+      // 2) Requests for credentials / payments
+      const credPhrases = ['password', 'pin', 'otp', 'one-time password', 'login', 'log in', 'confirm your identity', 'verify your account'];
+      if (credPhrases.some(p => text.includes(p))){
+        score += 2; flags.push({title:'Requests for credentials', detail:'Asking for passwords/OTP or to confirm identity via link.'});
+      }
+
+      // 3) Generic greeting
+      const genericGreetings = ['dear customer', 'dear user', 'valued customer'];
+      if (genericGreetings.some(p => text.includes(p))){
+        score += 1; flags.push({title:'Generic greeting', detail:'Lacks your real name; many scams use generic salutations.'});
+      }
+
+      // 4) Shortened URLs
+      const urlRegex = /(https?:\/\/[^\s)]+|www\.[^\s)]+)/ig;
+      const urls = (t.match(urlRegex) || []).map(u => u.toLowerCase());
+      const shorteners = ['bit.ly','tinyurl.com','t.co','ow.ly','goo.gl','is.gd','buff.ly','rebrand.ly','cutt.ly','s.id'];
+      if (urls.some(u => shorteners.some(s => u.includes(s)))){
+        score += 2; flags.push({title:'Link shortener detected', detail:'Shortened URLs can hide the real destination domain.'});
+      }
+
+      // 5) Attachment bait
+      const attachHints = ['attachment', '.html', '.htm', '.exe', '.scr', '.apk'];
+      if (attachHints.some(p => text.includes(p))){
+        score += 1; flags.push({title:'Suspicious attachment reference', detail:'Emails pointing to HTML/EXE attachments are often malicious.'});
+      }
+
+      // 6) Brand impersonation cues
+      const brands = ['bank', 'paypal', 'microsoft', 'apple id', 'netflix', 'amazon', 'facebook', 'instagram'];
+      if (brands.some(b => text.includes(b))){
+        score += 1; flags.push({title:'Possible brand impersonation', detail:'Mentions of popular brands are common in phishing attempts.'});
+      }
+
+      // 7) Financial lure / too-good-to-be-true
+      const lure = ['congratulations', 'you have won', 'lottery', 'claim your prize', 'reward', 'gift card'];
+      if (lure.some(p => text.includes(p))){
+        score += 2; flags.push({title:'Too-good-to-be-true offer', detail:'Promises of prizes or rewards are a common scam sign.'});
+      }
+
+      // 8) Mismatched domain-like patterns (very basic heuristic)
+      // Detect lookalike keywords with extra characters (e.g., paypa1, rnicrosoft)
+      const lookalikes = [/paypa[l1]/, /rnicrosoft/, /faceb00k/, /g00gle/, /netf1ix/];
+      if (lookalikes.some(rx => rx.test(text))){
+        score += 2; flags.push({title:'Brand lookalike spelling', detail:'The text contains lookalike brand spellings (typosquatting).'});
+      }
+
+      // 9) Country-specific common baits (optional)
+      const localBaits = ['bv n', 'bvn', 'cbn', 'bank verification number'];
+      if (localBaits.some(p => text.includes(p))){
+        score += 1; flags.push({title:'Local banking bait', detail:'BVN/CBN references are commonly abused in regional phishing.'});
+      }
+
+      // 10) Count of URLs – many links can be suspicious
+      if (urls.length >= 3){
+        score += 1; flags.push({title:'Multiple links detected', detail:`Found ${urls.length} links; phishing emails often include several trackers/calls-to-action.`});
+      }
+
+      // Normalize score and verdict
+      let verdict = 'safe';
+      if (score >= 6) verdict = 'suspicious';
+      else if (score >= 3) verdict = 'caution';
+
+      return { verdict, score, flags, urls };
+    }
+  </script>
+</body>
+</html>
